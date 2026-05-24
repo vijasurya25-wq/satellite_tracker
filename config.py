@@ -37,3 +37,8 @@ MAP_STYLE: str = "dark"       # "dark" | "light"
 
 
 GEONAMES_USERNAME = os.getenv("GEONAMES_USERNAME", "demo")
+
+TX_POWER_DBM        = float(os.getenv("TX_POWER_DBM", 30.0))
+TX_ANTENNA_GAIN_DBI = float(os.getenv("TX_ANTENNA_GAIN_DBI", 2.15))
+RX_ANTENNA_GAIN_DBI = float(os.getenv("RX_ANTENNA_GAIN_DBI", 6.0))
+RX_SENSITIVITY_DBM  = float(os.getenv("RX_SENSITIVITY_DBM", -120.0))

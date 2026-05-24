@@ -14,7 +14,7 @@ import json
 import time
 import logging
 import threading
-
+import math
 from flask import Flask, Response, render_template, jsonify
 
 # Allow imports from project root
@@ -91,8 +91,19 @@ def _fetch_loop():
             prev_position = positions[-1]
 
             # Latest snapshot
-            pos = positions[-1]
-            rf  = rf_results[-1]
+            pos = positions[0]
+            # Use positions[1] vs positions[0] diff for radial velocity at positions[0]
+            if len(positions) > 1:
+                from modules.processor import analyse_position, slant_range_km as slant_fn
+                slant_now  = slant_fn(GROUND.lat, GROUND.lon, GROUND.alt_m,
+                                    positions[1].lat, positions[1].lon, positions[1].alt_km)
+                slant_prev = slant_fn(GROUND.lat, GROUND.lon, GROUND.alt_m,
+                                    positions[0].lat, positions[0].lon, positions[0].alt_km)
+                dt = positions[1].timestamp - positions[0].timestamp
+                radial_vel = (slant_now - slant_prev) / dt if dt > 0 else None
+                rf = analyse_position(pos, GROUND, config.CARRIER_FREQ_HZ, radial_vel)
+            else:
+                rf = rf_results[0]
 
             # Reverse geocode (cached — fast after first hit)
             location_name = get_location_name(pos.lat, pos.lon)
@@ -113,7 +124,16 @@ def _fetch_loop():
                 pass_str = "No passes in prediction window"
                 pass_time_local = "—"
                 pass_active = False
-
+            
+            # Get computed radial velocity from RF analysis (more accurate than API value)
+            radial_vel = abs(rf.doppler_shift_hz * config.SPEED_OF_LIGHT / config.CARRIER_FREQ_HZ) / 1000
+            logger.info("DEBUG RF | doppler=%.1f Hz | radial_vel=%.3f km/s | slant=%.1f km",
+                rf.doppler_shift_hz, radial_vel, rf.slant_range_km)
+            
+            GM = 3.986e14          # Earth's gravitational parameter (m³/s²)
+            R_EARTH_M = 6.371e6    # Earth radius in metres
+            r = (R_EARTH_M + pos.alt_km * 1000)
+            orbital_speed_km_s = math.sqrt(GM / r) / 1000
             snapshot = {
                 "timestamp": pos.timestamp,
                 "timestamp_local": utc_to_local(pos.timestamp),
@@ -123,7 +143,7 @@ def _fetch_loop():
                 "alt_km": round(pos.alt_km, 1),
                 "azimuth": round(pos.azimuth, 1),
                 "elevation": round(pos.elevation, 1),
-                "velocity_km_s": round(pos.velocity_km_s, 3),
+                "velocity_km_s": round(orbital_speed_km_s, 3),
                 "location_name": location_name,
                 # RF
                 "doppler_hz": round(rf.doppler_shift_hz, 1),
@@ -138,6 +158,9 @@ def _fetch_loop():
                 "pass_active": pass_active,
                 # Ground track point for the map
                 "track_point": [pos.lat, pos.lon],
+                "received_power_dbm": rf.received_power_dbm,
+                "link_margin_db":     rf.link_margin_db,
+                "link_feasible":      rf.link_feasible,
             }
 
             with _state_lock:
@@ -167,6 +190,8 @@ def index():
         ground_lat=GROUND.lat,
         ground_lon=GROUND.lon,
         carrier_freq=config.CARRIER_FREQ_HZ / 1e6,
+        tx_power=config.TX_POWER_DBM,
+        rx_sensitivity=config.RX_SENSITIVITY_DBM,
     )
 
 

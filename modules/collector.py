@@ -13,6 +13,8 @@ import requests
 
 import config
 from modules.models import TLEData, SatellitePosition, PassEvent
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,10 @@ def _get(endpoint: str, params: Optional[dict] = None) -> dict:
     payload["apiKey"] = config.N2YO_API_KEY
 
     try:
-        resp = requests.get(url, params=payload, timeout=15)
+        session = requests.Session()
+        retry = Retry(total=3, backoff_factor=1)
+        session.mount("https://", HTTPAdapter(max_retries=retry))
+        resp = session.get(url, params=payload, timeout=15)
         resp.raise_for_status()
     except requests.exceptions.Timeout:
         logger.error("N2YO request timed out: %s", url)

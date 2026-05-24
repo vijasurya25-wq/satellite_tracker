@@ -149,6 +149,18 @@
   </div>
 
   <div class="card">
+    <div class="card-label">Link Budget</div>
+    <div class="signal-quality-label" id="link-label">—</div>
+    <div class="signal-sub" id="link-sub">—</div>
+    <div class="rf-grid">
+      <div><div class="rf-label">Received Power</div><div class="rf-value" id="lb-rx-power">—</div></div>
+      <div><div class="rf-label">Link Margin</div><div class="rf-value" id="lb-margin">—</div></div>
+      <div><div class="rf-label">TX Power</div><div class="rf-value" id="lb-tx-power">{{ tx_power }} dBm</div></div>
+      <div><div class="rf-label">RX Sensitivity</div><div class="rf-value" id="lb-sensitivity">{{ rx_sensitivity }} dBm</div></div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-label">Orbital State</div>
     <div class="orb-grid">
       <div><div class="orb-label">Azimuth</div><div class="orb-value" id="orb-az">—</div></div>
@@ -232,6 +244,14 @@ function updateUI(d) {
   document.getElementById('rf-slant').textContent = d.slant_range_km + ' km';
   document.getElementById('rf-fspl').textContent = d.fspl_db + ' dB';
   document.getElementById('rf-freq').textContent = d.shifted_freq_mhz + ' MHz';
+  
+  const marginSign = d.link_margin_db >= 0 ? '+' : '';
+  const linkLabel = document.getElementById('link-label');
+  linkLabel.textContent = d.link_feasible ? 'Link Feasible' : 'Link Insufficient';
+  linkLabel.style.color = d.link_feasible ? 'var(--green)' : 'var(--red)';
+  document.getElementById('link-sub').textContent = 'Margin: ' + marginSign + d.link_margin_db + ' dB';
+  document.getElementById('lb-rx-power').textContent = d.received_power_dbm + ' dBm';
+  document.getElementById('lb-margin').textContent = marginSign + d.link_margin_db + ' dB';
 
   document.getElementById('orb-az').textContent = d.azimuth + '°';
   document.getElementById('orb-el').textContent = d.elevation + '°';

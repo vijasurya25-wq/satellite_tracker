@@ -60,6 +60,10 @@ class RFAnalysis:
     slant_range_km: float           # km
     is_readable: bool               # True if FSPL < threshold
     signal_quality: str             # "Excellent" / "Good" / "Marginal" / "No Signal"
+    # Link budget additions
+    received_power_dbm: float
+    link_margin_db: float
+    link_feasible: bool
 
 
 @dataclass

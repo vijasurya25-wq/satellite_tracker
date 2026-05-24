@@ -34,3 +34,6 @@ MIN_ELEVATION: int = 10       # degrees — ignore passes below this
 # ── Visualization ─────────────────────────────────────────────────────────────
 REFRESH_INTERVAL: int = 5     # seconds between console refreshes
 MAP_STYLE: str = "dark"       # "dark" | "light"
+
+
+GEONAMES_USERNAME = os.getenv("GEONAMES_USERNAME", "demo")

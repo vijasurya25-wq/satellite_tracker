@@ -39,6 +39,7 @@ _state_lock = threading.Lock()
 _latest: dict = {}          # latest telemetry snapshot
 _passes: list = []          # upcoming passes (refreshed every 5 min)
 _ground_track: list = []    # list of [lat, lon] for the polyline (last 300 pts)
+_elevation_history: list = [] 
 
 GROUND = GroundStation(
     lat=config.GROUND_LAT,
@@ -52,7 +53,7 @@ GROUND = GroundStation(
 
 def _fetch_loop():
     """Runs in a daemon thread. Fetches new positions every REFRESH_INTERVAL seconds."""
-    global _passes, _ground_track, _latest
+    global _passes, _ground_track, _latest, _elevation_history
 
     prev_position = None
     passes_last_fetched = 0
@@ -166,8 +167,11 @@ def _fetch_loop():
             with _state_lock:
                 _latest = snapshot
                 _ground_track.append([pos.lat, pos.lon])
+                _elevation_history.append([pos.timestamp, pos.elevation])
                 if len(_ground_track) > 300:
                     _ground_track = _ground_track[-300:]
+                if len(_elevation_history) > 300:
+                    _elevation_history = _elevation_history[-300:]
 
             logger.info(
                 "%s | %.4f°, %.4f° | %s | %s",
@@ -242,6 +246,7 @@ def api_status():
     with _state_lock:
         data = dict(_latest)
         data["ground_track"] = list(_ground_track)
+        data["elevation_history"] = list(_elevation_history)
     return jsonify(data)
 
 

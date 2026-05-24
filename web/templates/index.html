@@ -101,11 +101,36 @@
   .leaflet-control-attribution { background: rgba(0,0,0,0.4) !important; color: #3a5a7a !important; font-size: 9px !important; }
   .leaflet-control-attribution a { color: #3a6a9a !important; }
 
-  #bottom-right { position: fixed; bottom: 20px; right: 20px; z-index: 10; text-align: right; }
+  #bottom-right {
+    position: fixed; bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10; text-align: center;
+  }
   .carrier-info {
     font-family: var(--mono); font-size: 10px; color: var(--text-dim);
     background: var(--panel); border: 1px solid var(--border);
     backdrop-filter: blur(8px); padding: 6px 12px;
+  }
+
+  #elev-panel {
+    position: fixed; top: 20px; right: 20px; width: 300px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-top: 2px solid var(--accent); backdrop-filter: blur(12px);
+    padding: 16px 18px; z-index: 10;
+  }
+  .elev-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 3px;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 4px;
+  }
+  .elev-sub {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--text-dim); margin-bottom: 12px;
+  }
+  #elev-chart { width: 100%; height: 120px; display: block; }
+  .elev-axis {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--text-dim); margin-top: 4px;
   }
 </style>
 </head>
@@ -177,6 +202,17 @@
   </div>
 </div>
 
+<div id="elev-panel">
+  <div class="elev-label">Elevation Profile</div>
+  <div class="elev-sub" id="elev-sub">Last 300 seconds</div>
+  <svg id="elev-chart" viewBox="0 0 280 120" preserveAspectRatio="none"></svg>
+  <div class="elev-axis">
+    <span id="elev-min">—</span>
+    <span>0°</span>
+    <span id="elev-max">—</span>
+  </div>
+</div>
+
 <div id="bottom-right">
   <div class="carrier-info">Carrier: {{ carrier_freq }} MHz &nbsp;|&nbsp; GS: {{ ground_lat }}°, {{ ground_lon }}°</div>
 </div>
@@ -214,9 +250,47 @@ const qualityConfig = {
   'No Signal': { color: '#ff3a3a', barWidth: '10%' },
 };
 
+// ── Elevation chart ───────────────────────────────────────────────────────────
+function drawElevationChart(history) {
+  const svg = document.getElementById('elev-chart');
+  if (!history || history.length < 2) return;
+
+  const W = 280, H = 120, PAD = 10;
+  const elevations = history.map(h => h[1]);
+  const minEl = Math.min(...elevations, -10);
+  const maxEl = Math.max(...elevations, 10);
+  const range = maxEl - minEl || 1;
+
+  const x = i => PAD + (i / (history.length - 1)) * (W - PAD * 2);
+  const y = v => H - PAD - ((v - minEl) / range) * (H - PAD * 2);
+
+  const zeroY = y(0);
+  let paths = `<line x1="${PAD}" y1="${zeroY}" x2="${W - PAD}" y2="${zeroY}" stroke="rgba(0,200,255,0.15)" stroke-width="1" stroke-dasharray="3 3"/>`;
+
+  let fillPts = `${x(0)},${H - PAD}`;
+  history.forEach((h, i) => { fillPts += ` ${x(i)},${y(h[1])}`; });
+  fillPts += ` ${x(history.length - 1)},${H - PAD}`;
+  paths += `<polygon points="${fillPts}" fill="rgba(0,200,255,0.08)"/>`;
+
+  let linePts = history.map((h, i) => `${x(i)},${y(h[1])}`).join(' ');
+  paths += `<polyline points="${linePts}" fill="none" stroke="#00c8ff" stroke-width="1.5" stroke-linejoin="round"/>`;
+
+  const last = history[history.length - 1];
+  const cx = x(history.length - 1), cy = y(last[1]);
+  const dotColor = last[1] >= 0 ? '#39ff82' : '#ff3a3a';
+  paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${dotColor}"/>`;
+
+  svg.innerHTML = paths;
+
+  document.getElementById('elev-min').textContent = minEl.toFixed(1) + '°';
+  document.getElementById('elev-max').textContent = maxEl.toFixed(1) + '°';
+  document.getElementById('elev-sub').textContent = last[1] >= 0
+    ? `Above horizon — ${last[1].toFixed(1)}°`
+    : `Below horizon — ${last[1].toFixed(1)}°`;
+}
+
 // ── Update UI ────────────────────────────────────────────────────────────────
 function updateUI(d) {
-  // Hide overlay
   const overlay = document.getElementById('connecting');
   if (overlay.style.display !== 'none') {
     overlay.style.opacity = '0';
@@ -244,7 +318,7 @@ function updateUI(d) {
   document.getElementById('rf-slant').textContent = d.slant_range_km + ' km';
   document.getElementById('rf-fspl').textContent = d.fspl_db + ' dB';
   document.getElementById('rf-freq').textContent = d.shifted_freq_mhz + ' MHz';
-  
+
   const marginSign = d.link_margin_db >= 0 ? '+' : '';
   const linkLabel = document.getElementById('link-label');
   linkLabel.textContent = d.link_feasible ? 'Link Feasible' : 'Link Insufficient';
@@ -261,7 +335,6 @@ function updateUI(d) {
   document.getElementById('pass-status').textContent = d.next_pass;
   document.getElementById('pass-time').textContent = d.next_pass_time;
 
-  // Map
   const latlng = [d.lat, d.lon];
   if (!satMarker) {
     satMarker = L.marker(latlng, { icon: satIcon }).addTo(map);
@@ -275,6 +348,8 @@ function updateUI(d) {
     if (trackLine) { map.removeLayer(trackLine); }
     trackLine = L.polyline(segments, { color: '#00c8ff', weight: 1.5, opacity: 0.5, dashArray: '4 4' }).addTo(map);
   }
+
+  if (d.elevation_history) drawElevationChart(d.elevation_history);
 }
 
 function splitAtAntimeridian(coords) {
@@ -299,8 +374,8 @@ async function fetchStatus() {
   }
 }
 
-fetchStatus();                        // run immediately on page load
-setInterval(fetchStatus, 5000);       // then every 5 seconds
+fetchStatus();
+setInterval(fetchStatus, 5000);
 </script>
 </body>
 </html>

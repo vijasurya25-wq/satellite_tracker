@@ -19,8 +19,10 @@ GROUND_LAT: float = float(os.getenv("GROUND_LAT", 12.9716))   # Bangalore
 GROUND_LON: float = float(os.getenv("GROUND_LON", 77.5946))
 GROUND_ALT: float = float(os.getenv("GROUND_ALT", 920))       # metres
 
-# ── Target Satellite ─────────────────────────────────────────────────────────
-NORAD_ID: int = int(os.getenv("NORAD_ID", 25544))             # ISS
+# ── Target Satellite ──────────────────────────────────────────────────────────
+# NORAD ID is always set at runtime via the dashboard (default: ISS = 25544).
+# Do NOT set NORAD_ID in .env — the dashboard input is the only way to change it.
+NORAD_ID: int = 25544   # International Space Station (default, always)
 
 # ── Physics / RF ─────────────────────────────────────────────────────────────
 CARRIER_FREQ_HZ: float = float(os.getenv("CARRIER_FREQ_MHZ", 145.800)) * 1e6
@@ -34,3 +36,11 @@ MIN_ELEVATION: int = 10       # degrees — ignore passes below this
 # ── Visualization ─────────────────────────────────────────────────────────────
 REFRESH_INTERVAL: int = 5     # seconds between console refreshes
 MAP_STYLE: str = "dark"       # "dark" | "light"
+
+
+GEONAMES_USERNAME = os.getenv("GEONAMES_USERNAME", "demo")
+
+TX_POWER_DBM        = float(os.getenv("TX_POWER_DBM", 30.0))
+TX_ANTENNA_GAIN_DBI = float(os.getenv("TX_ANTENNA_GAIN_DBI", 2.15))
+RX_ANTENNA_GAIN_DBI = float(os.getenv("RX_ANTENNA_GAIN_DBI", 6.0))
+RX_SENSITIVITY_DBM  = float(os.getenv("RX_SENSITIVITY_DBM", -120.0))

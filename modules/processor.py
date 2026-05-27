@@ -151,6 +151,16 @@ def is_pass_active(pass_event: PassEvent) -> bool:
     now = int(time.time())
     return pass_event.aos_timestamp <= now <= pass_event.los_timestamp
 
+def link_budget(
+    fspl_db: float,
+    tx_power_dbm: float = config.TX_POWER_DBM,
+    tx_gain_dbi: float = config.TX_ANTENNA_GAIN_DBI,
+    rx_gain_dbi: float = config.RX_ANTENNA_GAIN_DBI,
+    rx_sensitivity_dbm: float = config.RX_SENSITIVITY_DBM,
+) -> Tuple[float, float, bool]:
+    received_power = tx_power_dbm + tx_gain_dbi - fspl_db + rx_gain_dbi
+    margin = received_power - rx_sensitivity_dbm
+    return received_power, margin, margin >= 0
 
 # ── Full RF Analysis for a position snapshot ──────────────────────────────────
 
@@ -187,6 +197,8 @@ def analyse_position(
     readable = fspl < FSPL_READABLE_THRESHOLD_DB
     quality = signal_quality_label(fspl)
 
+    received_power, margin, feasible = link_budget(fspl)
+
     return RFAnalysis(
         doppler_shift_hz=shift_hz,
         shifted_freq_hz=shifted_hz,
@@ -194,8 +206,10 @@ def analyse_position(
         slant_range_km=slant,
         is_readable=readable,
         signal_quality=quality,
-    )
-
+        received_power_dbm=round(received_power, 2),
+        link_margin_db=round(margin, 2),
+        link_feasible=feasible,
+)
 
 def analyse_track(
     positions: List[SatellitePosition],

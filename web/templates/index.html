@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Satellite Tracker — Live Dashboard</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #07090f;
+    --panel: rgba(8, 14, 24, 0.92);
+    --border: rgba(0, 200, 255, 0.15);
+    --accent: #00c8ff;
+    --accent2: #ff6030;
+    --green: #39ff82;
+    --yellow: #ffd040;
+    --red: #ff3a3a;
+    --text: #b8cce0;
+    --text-dim: #4a6a8a;
+    --heading: #e0f0ff;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+
+  #map {
+    position: fixed; inset: 0; z-index: 0;
+    filter: brightness(0.85) saturate(0.7);
+  }
+
+  /* ── Left panel ── */
+  #panel {
+    position: fixed; top: 20px; left: 20px; width: 300px;
+    z-index: 10; display: flex; flex-direction: column; gap: 10px;
+    max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: none;
+  }
+  #panel::-webkit-scrollbar { display: none; }
+
+  /* ── Right panel ── */
+  #right-panel {
+    position: fixed; top: 20px; right: 20px; width: 300px;
+    z-index: 10; display: flex; flex-direction: column; gap: 10px;
+    max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: none;
+  }
+  #right-panel::-webkit-scrollbar { display: none; }
+
+  /* ── Shared card ── */
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-top: 2px solid var(--accent); backdrop-filter: blur(12px);
+    padding: 16px 18px; line-height: 1.5;
+  }
+
+  /* ── Collapsible header row (used on BOTH panels) ── */
+  .card-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .card-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 3px;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 10px;
+  }
+  .card-header-row .card-label { margin-bottom: 0; }
+
+  .toggle-btn {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    background: none; border: none; cursor: pointer; padding: 0;
+    line-height: 1; transition: color 0.2s; flex-shrink: 0; margin-left: 8px;
+  }
+  .toggle-btn:hover { color: var(--accent); }
+
+  .card-body {
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
+    max-height: 600px; opacity: 1; margin-top: 12px;
+  }
+  .card-body.collapsed { max-height: 0; opacity: 0; margin-top: 0; }
+
+  /* ── Left panel card styles ── */
+  #card-header .sat-name { font-family: var(--sans); font-size: 20px; font-weight: 800; color: var(--heading); }
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green); margin-right: 6px;
+    animation: pulse 1.5s ease-in-out infinite; vertical-align: middle;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+  .status-text { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 8px; }
+
+  .location-name { font-family: var(--sans); font-size: 17px; font-weight: 600; color: var(--heading); margin-bottom: 8px; }
+  .coord-row { display: flex; gap: 12px; }
+  .coord-item { flex: 1; }
+  .coord-label { font-family: var(--mono); font-size: 9px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 2px; }
+  .coord-value { font-family: var(--mono); font-size: 13px; color: var(--text); }
+
+  .signal-bar-wrap { height: 4px; background: rgba(255,255,255,0.07); border-radius: 2px; margin: 8px 0 12px; overflow: hidden; }
+  .signal-bar { height: 100%; border-radius: 2px; transition: width 0.8s ease, background 0.8s ease; }
+  .signal-quality-label { font-family: var(--sans); font-size: 20px; font-weight: 800; margin-bottom: 4px; transition: color 0.5s; display: inline-block; min-height: 28px; line-height: 28px; }
+  .signal-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
+  .rf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rf-label { font-family: var(--mono); font-size: 9px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; }
+  .rf-value { font-family: var(--mono); font-size: 13px; color: var(--text); margin-top: 1px; }
+
+  .orb-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .orb-label { font-family: var(--mono); font-size: 9px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; }
+  .orb-value { font-family: var(--mono); font-size: 13px; color: var(--text); margin-top: 2px; }
+
+  .pass-status { font-family: var(--sans); font-size: 14px; font-weight: 600; color: var(--heading); margin-bottom: 4px; line-height: 1.4; }
+  .pass-time { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  .pass-active-badge {
+    display: inline-block; background: rgba(57,255,130,0.15);
+    border: 1px solid rgba(57,255,130,0.4); color: var(--green);
+    font-family: var(--mono); font-size: 9px; letter-spacing: 2px;
+    padding: 2px 8px; margin-bottom: 6px; text-transform: uppercase;
+  }
+
+  /* ── NORAD switcher card ── */
+  .norad-input-row {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
+  }
+  .norad-input {
+    flex: 1; background: rgba(0,200,255,0.06); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 13px;
+    padding: 7px 10px; outline: none; transition: border-color 0.2s;
+    /* remove number spinners */
+    -moz-appearance: textfield;
+  }
+  .norad-input::-webkit-outer-spin-button,
+  .norad-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .norad-input:focus { border-color: var(--accent); }
+  .norad-input::placeholder { color: var(--text-dim); }
+  .norad-apply-btn {
+    background: rgba(0,200,255,0.12); border: 1px solid rgba(0,200,255,0.35);
+    color: var(--accent); font-family: var(--mono); font-size: 10px;
+    letter-spacing: 1.5px; text-transform: uppercase; padding: 7px 12px;
+    cursor: pointer; transition: background 0.2s, border-color 0.2s; white-space: nowrap;
+  }
+  .norad-apply-btn:hover { background: rgba(0,200,255,0.22); border-color: var(--accent); }
+  .norad-apply-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .norad-status {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    min-height: 15px; transition: color 0.3s;
+  }
+  .norad-status.ok  { color: var(--green); }
+  .norad-status.err { color: var(--red); }
+
+  .norad-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .norad-preset-btn {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    color: var(--text-dim); font-family: var(--mono); font-size: 9px;
+    letter-spacing: 1px; padding: 4px 8px; cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+    text-transform: uppercase;
+  }
+  .norad-preset-btn:hover { background: rgba(0,200,255,0.1); color: var(--accent); border-color: rgba(0,200,255,0.3); }
+  .norad-active-id {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .norad-active-id span { color: var(--accent); }
+
+  /* ── Connecting overlay ── */
+  #connecting {
+    position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px; transition: opacity 0.5s;
+  }
+  .c-label { font-family: var(--mono); font-size: 12px; color: var(--accent); letter-spacing: 3px; animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .c-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+
+  .gs-icon { width: 12px; height: 12px; border: 2px solid var(--accent2); border-radius: 50%; background: rgba(255,96,48,0.3); }
+
+  .leaflet-control-zoom { display: none; }
+  .leaflet-control-attribution { background: rgba(0,0,0,0.4) !important; color: #3a5a7a !important; font-size: 9px !important; }
+  .leaflet-control-attribution a { color: #3a6a9a !important; }
+
+  #bottom-right {
+    position: fixed; bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10; text-align: center;
+  }
+  .carrier-info {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--border);
+    backdrop-filter: blur(8px); padding: 6px 12px;
+  }
+
+  /* ── Chart styles ── */
+  .chart-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
+  .chart-svg { width: 100%; display: block; }
+  .chart-axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+  .chart-current-val { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+  .chart-current-val.positive { color: var(--green); }
+  .chart-current-val.negative { color: var(--red); }
+</style>
+</head>
+<body>
+
+<div id="connecting">
+  <div class="c-label">◉ ACQUIRING SIGNAL</div>
+  <div class="c-sub">Connecting to satellite feed…</div>
+</div>
+
+<div id="map"></div>
+
+<!-- ══ LEFT PANEL ══ -->
+<div id="panel">
+
+  <!-- Tracking header — always visible, no collapse -->
+  <div class="card" id="card-header">
+    <div class="card-label">Tracking</div>
+    <div class="sat-name" id="sat-name">NORAD {{ default_norad }}</div>
+    <div class="status-text"><span class="live-dot"></span><span id="status-ts">Waiting for data…</span></div>
+  </div>
+
+  <!-- Current Location -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('loc-body', this)">
+      <div class="card-label">Current Location</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="loc-body">
+      <div class="location-name" id="location-name">—</div>
+      <div class="coord-row">
+        <div class="coord-item"><div class="coord-label">Latitude</div><div class="coord-value" id="c-lat">—</div></div>
+        <div class="coord-item"><div class="coord-label">Longitude</div><div class="coord-value" id="c-lon">—</div></div>
+        <div class="coord-item"><div class="coord-label">Altitude</div><div class="coord-value" id="c-alt">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RF Link Quality -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('rf-body', this)">
+      <div class="card-label">RF Link Quality</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="rf-body">
+      <div class="signal-quality-label" id="sig-label" style="font-family: var(--mono) !important; font-weight: 700 !important; letter-spacing: 1px;">—</div>
+      <div class="signal-sub" id="sig-sub">—</div>
+      <div class="signal-bar-wrap"><div class="signal-bar" id="sig-bar" style="width:0%"></div></div>
+      <div class="rf-grid">
+        <div><div class="rf-label">Doppler Shift</div><div class="rf-value" id="rf-doppler">—</div></div>
+        <div><div class="rf-label">Slant Range</div><div class="rf-value" id="rf-slant">—</div></div>
+        <div><div class="rf-label">FSPL</div><div class="rf-value" id="rf-fspl">—</div></div>
+        <div><div class="rf-label">Shifted Freq</div><div class="rf-value" id="rf-freq">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link Budget -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('lb-body', this)">
+      <div class="card-label">Link Budget</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="lb-body">
+      <div class="signal-quality-label" id="link-label">—</div>
+      <div class="signal-sub" id="link-sub">—</div>
+      <div class="rf-grid">
+        <div><div class="rf-label">Received Power</div><div class="rf-value" id="lb-rx-power">—</div></div>
+        <div><div class="rf-label">Link Margin</div><div class="rf-value" id="lb-margin">—</div></div>
+        <div><div class="rf-label">TX Power</div><div class="rf-value" id="lb-tx-power">{{ tx_power }} dBm</div></div>
+        <div><div class="rf-label">RX Sensitivity</div><div class="rf-value" id="lb-sensitivity">{{ rx_sensitivity }} dBm</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Orbital State -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('orb-body', this)">
+      <div class="card-label">Orbital State</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="orb-body">
+      <div class="orb-grid">
+        <div><div class="orb-label">Azimuth</div><div class="orb-value" id="orb-az">—</div></div>
+        <div><div class="orb-label">Elevation</div><div class="orb-value" id="orb-el">—</div></div>
+        <div><div class="orb-label">Velocity</div><div class="orb-value" id="orb-vel">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Communication Window -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('pass-body', this)">
+      <div class="card-label">Communication Window</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="pass-body">
+      <div id="pass-active-badge" class="pass-active-badge" style="display:none">● Pass Active</div>
+      <div class="pass-status" id="pass-status">—</div>
+      <div class="pass-time" id="pass-time">—</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ RIGHT PANEL ══ -->
+<div id="right-panel">
+
+  <!-- NORAD ID Switcher -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('norad-body', this)">
+      <div class="card-label">Satellite Selector</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="norad-body">
+      <div class="norad-active-id">Active: NORAD <span id="norad-active-display">{{ default_norad }}</span></div>
+      <div class="norad-input-row">
+        <input
+          class="norad-input" id="norad-input"
+          type="number" min="1" placeholder="Enter NORAD ID…"
+        />
+        <button class="norad-apply-btn" id="norad-apply-btn" onclick="applyNorad()">Track</button>
+      </div>
+      <div class="norad-status" id="norad-status"></div>
+      <div class="norad-presets">
+        <button class="norad-preset-btn" onclick="setPreset(25544, 'ISS')">ISS</button>
+        <button class="norad-preset-btn" onclick="setPreset(20580, 'Hubble')">Hubble</button>
+        <button class="norad-preset-btn" onclick="setPreset(48274, 'CSS')">CSS</button>
+        <button class="norad-preset-btn" onclick="setPreset(43226, 'NOAA-20')">NOAA-20</button>
+        <button class="norad-preset-btn" onclick="setPreset(33591, 'NOAA-19')">NOAA-19</button>
+        <button class="norad-preset-btn" onclick="setPreset(28654, 'NOAA-18')">NOAA-18</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Elevation Profile -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('elev-body', this)">
+      <div class="card-label">Elevation Profile</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="elev-body">
+      <div class="chart-sub" id="elev-sub">Last 300 seconds</div>
+      <svg id="elev-chart" class="chart-svg" viewBox="0 0 264 110" preserveAspectRatio="none" style="height:110px;"></svg>
+      <div class="chart-axis">
+        <span id="elev-min">—</span>
+        <span>0°</span>
+        <span id="elev-max">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Doppler Shift History -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('doppler-body', this)">
+      <div class="card-label">Doppler Shift History</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="doppler-body">
+      <div class="chart-current-val" id="doppler-current">— Hz</div>
+      <div class="chart-sub" id="doppler-sub">Frequency shift over time</div>
+      <svg id="doppler-chart" class="chart-svg" viewBox="0 0 264 110" preserveAspectRatio="none" style="height:110px;"></svg>
+      <div class="chart-axis">
+        <span id="doppler-min">—</span>
+        <span>0 Hz</span>
+        <span id="doppler-max">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FSPL History -->
+  <div class="card">
+    <div class="card-header-row" onclick="toggleCard('fspl-body', this)">
+      <div class="card-label">FSPL History</div>
+      <button class="toggle-btn">▲</button>
+    </div>
+    <div class="card-body" id="fspl-body">
+      <div class="chart-current-val" id="fspl-current">— dB</div>
+      <div class="chart-sub" id="fspl-sub">Signal loss over time</div>
+      <svg id="fspl-chart" class="chart-svg" viewBox="0 0 264 110" preserveAspectRatio="none" style="height:110px;"></svg>
+      <div class="chart-axis">
+        <span id="fspl-min">—</span>
+        <span></span>
+        <span id="fspl-max">—</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div id="bottom-right">
+  <div class="carrier-info">Carrier: {{ carrier_freq }} MHz &nbsp;|&nbsp; GS: {{ ground_lat }}°, {{ ground_lon }}°</div>
+</div>
+
+<script>
+// ── Collapse / expand ─────────────────────────────────────────────────────────
+function toggleCard(bodyId, headerRow) {
+  const body = document.getElementById(bodyId);
+  const btn  = headerRow.querySelector('.toggle-btn');
+  const isCollapsed = body.classList.contains('collapsed');
+  body.classList.toggle('collapsed', !isCollapsed);
+  btn.textContent = isCollapsed ? '▲' : '▼';
+}
+
+// ── NORAD switcher ────────────────────────────────────────────────────────────
+function setPreset(id, label) {
+  document.getElementById('norad-input').value = id;
+  applyNorad();
+}
+
+async function applyNorad() {
+  const input = document.getElementById('norad-input');
+  const btn   = document.getElementById('norad-apply-btn');
+  const status = document.getElementById('norad-status');
+  const val = parseInt(input.value, 10);
+
+  if (!val || val <= 0) {
+    status.textContent = 'Enter a valid NORAD ID.';
+    status.className = 'norad-status err';
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = 'Switching…';
+  status.className = 'norad-status';
+
+  try {
+    const res = await fetch('/api/set_norad', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ norad_id: val }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      status.textContent = `Now tracking NORAD ${val} — acquiring data…`;
+      status.className = 'norad-status ok';
+      document.getElementById('norad-active-display').textContent = val;
+      document.getElementById('sat-name').textContent = `NORAD ${val}`;
+      // Clear local chart history buffers for fresh start
+      _dopplerHistory.length = 0;
+      _fsplHistory.length    = 0;
+      input.value = '';
+    } else {
+      status.textContent = data.error || 'Failed to switch satellite.';
+      status.className = 'norad-status err';
+    }
+  } catch (e) {
+    status.textContent = 'Network error — please retry.';
+    status.className = 'norad-status err';
+  }
+
+  btn.disabled = false;
+  // Clear status after 6 seconds
+  setTimeout(() => {
+    if (status.classList.contains('ok')) {
+      status.textContent = '';
+      status.className = 'norad-status';
+    }
+  }, 6000);
+}
+
+// Allow pressing Enter in the input field
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('norad-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') applyNorad();
+  });
+});
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+const map = L.map('map', { center: [20, 78], zoom: 3, zoomControl: false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', maxZoom: 18
+}).addTo(map);
+
+const gsIcon = L.divIcon({ className: '', html: '<div class="gs-icon"></div>', iconSize: [12,12] });
+L.marker([{{ ground_lat }}, {{ ground_lon }}], { icon: gsIcon }).addTo(map)
+  .bindTooltip('Ground Station', { permanent: false });
+
+const satIcon = L.divIcon({
+  className: '',
+  html: `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="12" cy="12" r="4" fill="#00c8ff" opacity="0.9"/>
+    <circle cx="12" cy="12" r="8" stroke="#00c8ff" stroke-width="1" fill="none" opacity="0.3"/>
+    <line x1="2" y1="12" x2="6" y2="12" stroke="#00c8ff" stroke-width="1.5" opacity="0.7"/>
+    <line x1="18" y1="12" x2="22" y2="12" stroke="#00c8ff" stroke-width="1.5" opacity="0.7"/>
+    <line x1="12" y1="2" x2="12" y2="6" stroke="#00c8ff" stroke-width="1.5" opacity="0.7"/>
+    <line x1="12" y1="18" x2="12" y2="22" stroke="#00c8ff" stroke-width="1.5" opacity="0.7"/>
+  </svg>`,
+  iconSize: [24, 24], iconAnchor: [12, 12]
+});
+
+let satMarker = null, trackLine = null;
+
+const qualityConfig = {
+  'Excellent': { color: '#39ff82', barWidth: '95%' },
+  'Good':      { color: '#00c8ff', barWidth: '70%' },
+  'Marginal':  { color: '#ffd040', barWidth: '40%' },
+  'No Signal': { color: '#ff3a3a', barWidth: '10%' },
+};
+
+// ── Generic SVG line chart renderer ──────────────────────────────────────────
+function drawLineChart(svgId, history, {
+  colorFn, fillColor, zeroLine = false, W = 264, H = 110, PAD = 8
+} = {}) {
+  const svg = document.getElementById(svgId);
+  if (!history || history.length < 2) return;
+
+  const vals = history.map(h => h[1]);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const range = (maxV - minV) || 1;
+
+  const xFn = i => PAD + (i / (history.length - 1)) * (W - PAD * 2);
+  const yFn = v => H - PAD - ((v - minV) / range) * (H - PAD * 2);
+
+  let paths = '';
+
+  if (zeroLine && minV < 0 && maxV > 0) {
+    const zy = yFn(0);
+    paths += `<line x1="${PAD}" y1="${zy}" x2="${W-PAD}" y2="${zy}" stroke="rgba(0,200,255,0.15)" stroke-width="1" stroke-dasharray="3 3"/>`;
+  }
+
+  let fillPts = `${xFn(0)},${H-PAD}`;
+  history.forEach((h, i) => { fillPts += ` ${xFn(i)},${yFn(h[1])}`; });
+  fillPts += ` ${xFn(history.length-1)},${H-PAD}`;
+  paths += `<polygon points="${fillPts}" fill="${fillColor || 'rgba(0,200,255,0.08)'}"/>`;
+
+  if (colorFn) {
+    for (let i = 1; i < history.length; i++) {
+      const x1 = xFn(i-1), y1 = yFn(history[i-1][1]);
+      const x2 = xFn(i),   y2 = yFn(history[i][1]);
+      paths += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${colorFn(history[i][1])}" stroke-width="1.5" stroke-linejoin="round"/>`;
+    }
+  } else {
+    const linePts = history.map((h,i) => `${xFn(i)},${yFn(h[1])}`).join(' ');
+    paths += `<polyline points="${linePts}" fill="none" stroke="#00c8ff" stroke-width="1.5" stroke-linejoin="round"/>`;
+  }
+
+  const last = history[history.length-1];
+  const cx = xFn(history.length-1), cy = yFn(last[1]);
+  paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${colorFn ? colorFn(last[1]) : '#00c8ff'}"/>`;
+
+  svg.innerHTML = paths;
+  return { minV, maxV };
+}
+
+// ── Elevation chart ───────────────────────────────────────────────────────────
+function drawElevationChart(history) {
+  if (!history || history.length < 2) return;
+  const result = drawLineChart('elev-chart', history, {
+    colorFn: v => v >= 0 ? '#39ff82' : '#ff3a3a',
+    fillColor: 'rgba(0,200,255,0.08)', zeroLine: true,
+  });
+  if (!result) return;
+  const last = history[history.length-1];
+  document.getElementById('elev-min').textContent = result.minV.toFixed(1) + '°';
+  document.getElementById('elev-max').textContent = result.maxV.toFixed(1) + '°';
+  document.getElementById('elev-sub').textContent = last[1] >= 0
+    ? `Above horizon — ${last[1].toFixed(1)}°`
+    : `Below horizon — ${last[1].toFixed(1)}°`;
+}
+
+// ── Doppler chart ─────────────────────────────────────────────────────────────
+function drawDopplerChart(history) {
+  if (!history || history.length < 2) return;
+  const result = drawLineChart('doppler-chart', history, {
+    colorFn: v => v >= 0 ? '#39ff82' : '#ff3a3a',
+    fillColor: 'rgba(57,255,130,0.06)', zeroLine: true,
+  });
+  if (!result) return;
+  const last = history[history.length-1];
+  const sign = last[1] >= 0 ? '+' : '';
+  const valEl = document.getElementById('doppler-current');
+  valEl.textContent = sign + last[1].toFixed(0) + ' Hz';
+  valEl.className = 'chart-current-val ' + (last[1] >= 0 ? 'positive' : 'negative');
+  const minSign = result.minV >= 0 ? '+' : '';
+  const maxSign = result.maxV >= 0 ? '+' : '';
+  document.getElementById('doppler-min').textContent = minSign + result.minV.toFixed(0) + ' Hz';
+  document.getElementById('doppler-max').textContent = maxSign + result.maxV.toFixed(0) + ' Hz';
+}
+
+// ── FSPL chart ────────────────────────────────────────────────────────────────
+function drawFsplChart(history) {
+  if (!history || history.length < 2) return;
+  const result = drawLineChart('fspl-chart', history, {
+    colorFn: v => v > 160 ? '#ff3a3a' : v > 140 ? '#ffd040' : '#00c8ff',
+    fillColor: 'rgba(255,208,64,0.06)', zeroLine: false,
+  });
+  if (!result) return;
+  const last = history[history.length-1];
+  const valEl = document.getElementById('fspl-current');
+  valEl.textContent = last[1].toFixed(1) + ' dB';
+  valEl.className = 'chart-current-val' + (last[1] > 160 ? ' negative' : last[1] > 140 ? '' : ' positive');
+  document.getElementById('fspl-min').textContent = result.minV.toFixed(1) + ' dB';
+  document.getElementById('fspl-max').textContent = result.maxV.toFixed(1) + ' dB';
+}
+
+// ── Update UI ─────────────────────────────────────────────────────────────────
+function updateUI(d) {
+  const overlay = document.getElementById('connecting');
+  if (overlay.style.display !== 'none') {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.style.display = 'none', 500);
+  }
+
+  document.getElementById('sat-name').textContent = d.name;
+  document.getElementById('status-ts').textContent = d.timestamp_local;
+  document.getElementById('location-name').textContent = d.location_name;
+  document.getElementById('c-lat').textContent = d.lat + '°';
+  document.getElementById('c-lon').textContent = d.lon + '°';
+  document.getElementById('c-alt').textContent = d.alt_km + ' km';
+
+  const qcfg = qualityConfig[d.signal_quality] || qualityConfig['No Signal'];
+  const sigLabel = document.getElementById('sig-label');
+  sigLabel.textContent = d.signal_quality;
+  sigLabel.style.color = qcfg.color;
+  document.getElementById('sig-sub').textContent = 'FSPL ' + d.fspl_db + ' dB';
+  const bar = document.getElementById('sig-bar');
+  bar.style.width = qcfg.barWidth;
+  bar.style.background = qcfg.color;
+
+  const sign = d.doppler_hz >= 0 ? '+' : '';
+  document.getElementById('rf-doppler').textContent = sign + d.doppler_hz.toFixed(0) + ' Hz';
+  document.getElementById('rf-slant').textContent = d.slant_range_km + ' km';
+  document.getElementById('rf-fspl').textContent = d.fspl_db + ' dB';
+  document.getElementById('rf-freq').textContent = d.shifted_freq_mhz + ' MHz';
+
+  const marginSign = d.link_margin_db >= 0 ? '+' : '';
+  const linkLabel = document.getElementById('link-label');
+  linkLabel.textContent = d.link_feasible ? 'Link Feasible' : 'Link Insufficient';
+  linkLabel.style.color = d.link_feasible ? 'var(--green)' : 'var(--red)';
+  document.getElementById('link-sub').textContent = 'Margin: ' + marginSign + d.link_margin_db + ' dB';
+  document.getElementById('lb-rx-power').textContent = d.received_power_dbm + ' dBm';
+  document.getElementById('lb-margin').textContent = marginSign + d.link_margin_db + ' dB';
+
+  document.getElementById('orb-az').textContent = d.azimuth + '°';
+  document.getElementById('orb-el').textContent = d.elevation + '°';
+  document.getElementById('orb-vel').textContent = d.velocity_km_s + ' km/s';
+
+  document.getElementById('pass-active-badge').style.display = d.pass_active ? 'inline-block' : 'none';
+  document.getElementById('pass-status').textContent = d.next_pass;
+  document.getElementById('pass-time').textContent = d.next_pass_time;
+
+  // Sync NORAD display if backend confirms a different ID
+  if (d.norad_id) {
+    document.getElementById('norad-active-display').textContent = d.norad_id;
+  }
+
+  const latlng = [d.lat, d.lon];
+  if (!satMarker) {
+    satMarker = L.marker(latlng, { icon: satIcon }).addTo(map);
+    satMarker.bindTooltip(d.name, { permanent: true, direction: 'right', offset: [14, 0] });
+  } else {
+    satMarker.setLatLng(latlng);
+    satMarker.getTooltip().setContent(d.name);
+  }
+
+  if (d.ground_track && d.ground_track.length > 1) {
+    const segments = splitAtAntimeridian(d.ground_track);
+    if (trackLine) { map.removeLayer(trackLine); }
+    trackLine = L.polyline(segments, { color: '#00c8ff', weight: 1.5, opacity: 0.5, dashArray: '4 4' }).addTo(map);
+  }
+
+  // Charts
+  if (d.elevation_history) drawElevationChart(d.elevation_history);
+
+  if (d.doppler_history) {
+    drawDopplerChart(d.doppler_history);
+  } else if (d.elevation_history) {
+    _dopplerHistory.push([Date.now(), d.doppler_hz]);
+    if (_dopplerHistory.length > 300) _dopplerHistory.shift();
+    drawDopplerChart(_dopplerHistory);
+  }
+
+  if (d.fspl_history) {
+    drawFsplChart(d.fspl_history);
+  } else if (d.elevation_history) {
+    _fsplHistory.push([Date.now(), d.fspl_db]);
+    if (_fsplHistory.length > 300) _fsplHistory.shift();
+    drawFsplChart(_fsplHistory);
+  }
+}
+
+function splitAtAntimeridian(coords) {
+  const segments = []; let current = [coords[0]];
+  for (let i = 1; i < coords.length; i++) {
+    if (Math.abs(coords[i][1] - coords[i-1][1]) > 180) { segments.push(current); current = [coords[i]]; }
+    else { current.push(coords[i]); }
+  }
+  if (current.length) segments.push(current);
+  return segments;
+}
+
+// ── Local history buffers ─────────────────────────────────────────────────────
+const _dopplerHistory = [];
+const _fsplHistory    = [];
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d && d.timestamp) updateUI(d);
+  } catch(e) {
+    console.error('Fetch error:', e);
+  }
+}
+
+fetchStatus();
+setInterval(fetchStatus, 5000);
+</script>
+</body>
+</html>

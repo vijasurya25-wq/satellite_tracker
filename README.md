@@ -264,14 +264,7 @@ Educational project developed at RV College of Engineering.
 
 ---
 
-## 👥 Authors
 
-- Vijaysurya B S (1RV25EC239)
-- Sudhanva Rao C A (1RV25EC216)
-- Thejas Bhat (1RV25EC227)
-- Shashank P Rao (1RV25EC189)
-
-**Under the guidance of:** Dr. B.H Chandrashekar, Associate Professor, MCA Dept., RV College of Engineering
 
 ---
 
